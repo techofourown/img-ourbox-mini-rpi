@@ -1,5 +1,4 @@
 
-````md
 # RFC-0002: Field Note - Build, Publish, Retrieve, and Flash an OurBox Mini OS Image
 
 **Status:** Draft (Non-normative field note)  
@@ -403,4 +402,3 @@ systemctl status fstrim.timer --no-pager
 * `tools/pull-os-artifact.sh`
 * `pigen/stages/stage-ourbox-mini/*`
 
-```
