@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
-source "$(dirname "$0")/registry.sh"
+source "${ROOT}/tools/lib.sh"
+# shellcheck disable=SC1091
+source "${ROOT}/tools/registry.sh"
 
 cli="$(pick_container_cli)"
 
 pull_and_tag() {
   local src="$1" dst="$2"
-  echo ">> Pull: $src"
+  log ">> Pull: $src"
   # shellcheck disable=SC2086
   $cli pull "$src"
-  echo ">> Tag:  $src -> $dst"
+  log ">> Tag:  $src -> $dst"
   # shellcheck disable=SC2086
   $cli tag "$src" "$dst"
 }

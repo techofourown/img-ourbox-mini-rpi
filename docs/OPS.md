@@ -160,69 +160,18 @@ ls -l /dev/disk/by-id/ | grep -i nvme || true
 
 ### 6.3 Use the safety rails flash script
 
-Copy/paste and ONLY edit `SYS_DISK`:
-
 ```bash
-set -euo pipefail
-
-IMG="/home/johnb/os.img.xz"
-DATA_PART="/dev/disk/by-label/OURBOX_DATA"
-SYS_DISK="/dev/disk/by-id/<YOUR_SYSTEM_NVME_BY_ID>"   # MUST be a raw disk by-id (not a partition)
-
-xz -t "$IMG"
-
-DATA_DEV="$(readlink -f "$DATA_PART")"
-DATA_DISK="/dev/$(lsblk -no PKNAME "$DATA_DEV")"
-SYS_DEV="$(readlink -f "$SYS_DISK")"
-
-echo "IMG=$IMG"
-echo "DATA_PART=$DATA_PART -> $DATA_DEV (disk $DATA_DISK)"
-echo "SYS_DISK=$SYS_DISK -> $SYS_DEV"
-echo
-
-lsblk -o NAME,SIZE,MODEL,SERIAL,TYPE,FSTYPE,LABEL,MOUNTPOINTS "$DATA_DISK"
-echo
-lsblk -o NAME,SIZE,MODEL,SERIAL,TYPE,FSTYPE,LABEL,MOUNTPOINTS "$SYS_DEV"
-echo
-
-if [ "$SYS_DEV" = "$DATA_DISK" ]; then
-  echo "ERROR: SYS_DEV resolves to DATA disk ($DATA_DISK). Refusing." >&2
-  exit 1
-fi
-
-read -r -p "Type FLASH (all caps) to erase and flash $SYS_DEV: " ans
-[ "$ans" = "FLASH" ]
-
-xzcat "$IMG" | dd of="$SYS_DEV" bs=4M conv=fsync status=progress
-sync
-
-partprobe "$SYS_DEV" || true
-lsblk -f "$SYS_DEV"
+sudo ./tools/flash-system-nvme.sh /home/johnb/os.img.xz /dev/disk/by-id/<YOUR_SYSTEM_NVME_BY_ID>
 ```
 
 ---
 
 ## 7) Pre-boot config (set username/password without wizard)
 
-Before booting the newly-flashed NVMe OS, mount the SYSTEM boot partition and create `userconf.txt`.
+Before booting the newly-flashed NVMe OS, create `userconf.txt` on the boot partition:
 
 ```bash
-set -euo pipefail
-SYS_DEV="/dev/nvme1n1"      # example: your SYSTEM disk
-BOOT_PART="${SYS_DEV}p1"
-
-sudo mkdir -p /mnt/ourbox-boot
-sudo mount "$BOOT_PART" /mnt/ourbox-boot
-
-NEW_USER="johnb"
-HASH="$(openssl passwd -6)"   # prompts for password, outputs hash
-echo "${NEW_USER}:${HASH}" | sudo tee /mnt/ourbox-boot/userconf.txt >/dev/null
-
-# Optional: enable ssh on first boot (if your base expects /boot/firmware/ssh)
-sudo touch /mnt/ourbox-boot/ssh || true
-
-sudo sync
-sudo umount /mnt/ourbox-boot
+sudo ./tools/preboot-userconf.sh /dev/nvme1n1 johnb
 ```
 
 Power down, remove SD (or fix boot order), and boot the NVMe OS.
@@ -270,6 +219,8 @@ sudo cat /var/lib/ourbox/state/bootstrap.done 2>/dev/null || true
 ## Troubleshooting
 
 ### k3s fails with: “failed to find memory cgroup (v2)”
+
+If you’re running an image built after this change, this should already be baked in. If you’re on an older image or you edited cmdline manually, use the steps below.
 
 Symptom:
 

@@ -18,5 +18,7 @@ git clone --recurse-submodules <REPO_URL>
 OURBOX_VARIANT=dev OURBOX_VERSION=dev ./tools/build-image.sh
 ./tools/publish-os-artifact.sh deploy
 ./tools/pull-os-artifact.sh <registry-image-ref> ./deploy-from-registry
-# Flash + boot: see docs/OPS.md
+sudo ./tools/flash-system-nvme.sh ./deploy-from-registry/os.img.xz /dev/disk/by-id/<SYSTEM_NVME_ID>
+sudo ./tools/preboot-userconf.sh /dev/nvme1n1 <new-user>
+# Boot validation and troubleshooting: see docs/OPS.md
 ```

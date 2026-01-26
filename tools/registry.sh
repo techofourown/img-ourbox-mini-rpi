@@ -7,7 +7,9 @@ set -euo pipefail
 : "${REGISTRY:=registry.benac.dev}"
 : "${REGISTRY_NAMESPACE:=ourbox}"
 
-need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "missing required command: $1" >&2; exit 1; }; }
+if ! declare -F need_cmd >/dev/null 2>&1; then
+  need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "missing required command: $1" >&2; exit 1; }; }
+fi
 
 pick_container_cli() {
   # If caller sets DOCKER, honor it (can be "nerdctl" or "sudo nerdctl").

@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # shellcheck disable=SC1091
+source "${ROOT}/tools/lib.sh"
+# shellcheck disable=SC1091
 source "${ROOT}/tools/registry.sh"
 
 # Pick a container CLI (caller can override with DOCKER=...)
@@ -32,4 +34,19 @@ export PIGEN_DOCKER_OPTS="${PIGEN_DOCKER_OPTS:-} \
   -e OURBOX_VARIANT=${OURBOX_VARIANT} \
   -e OURBOX_VERSION=${OURBOX_VERSION}"
 
-exec "${ROOT}/vendor/pi-gen/build-docker.sh" -c "${ROOT}/pigen/config/ourbox.conf"
+log "Preflight: verifying airgap artifacts exist"
+[[ -x "${ROOT}/artifacts/airgap/k3s/k3s" ]] || die "missing k3s binary; run ./tools/fetch-airgap-platform.sh"
+[[ -f "${ROOT}/artifacts/airgap/k3s/k3s-airgap-images-arm64.tar" ]] || die "missing k3s airgap tar; run ./tools/fetch-airgap-platform.sh"
+[[ -f "${ROOT}/artifacts/airgap/platform/images/nginx_1.27-alpine.tar" ]] || die "missing nginx tar; run ./tools/fetch-airgap-platform.sh"
+
+"${ROOT}/vendor/pi-gen/build-docker.sh" -c "${ROOT}/pigen/config/ourbox.conf"
+
+log "Postflight: validating deploy outputs"
+IMG_XZ="$(ls -1 "${ROOT}/deploy"/img-*.img.xz | head -n 1 || true)"
+[[ -n "${IMG_XZ}" && -f "${IMG_XZ}" ]] || die "build did not produce deploy/img-*.img.xz"
+
+need_cmd xz
+xz -t "${IMG_XZ}"
+
+log "Build OK: ${IMG_XZ}"
+log "Next: ./tools/publish-os-artifact.sh deploy"

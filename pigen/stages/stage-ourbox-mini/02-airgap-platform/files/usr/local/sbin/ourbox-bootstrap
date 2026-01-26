@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+log(){ echo "[$(date -Is)] $*"; }
+
 STATE_DIR="/var/lib/ourbox/state"
 MARKER="${STATE_DIR}/bootstrap.done"
 
@@ -36,32 +38,49 @@ TOKEN="$(cat /var/lib/ourbox/secrets/k3s_token)"
 
 # Write k3s config (data-dir on DATA disk)
 mkdir -p /etc/rancher/k3s
-cat > /etc/rancher/k3s/config.yaml <<EOF
+cat > /etc/rancher/k3s/config.yaml <<EOF_CONFIG
 token: "${TOKEN}"
 data-dir: /var/lib/ourbox/k3s
 write-kubeconfig-mode: "0644"
 disable:
   - servicelb
-EOF
+EOF_CONFIG
 
+log "Hydrating airgap image tars into /var/lib/ourbox/k3s/agent/images"
 # Hydrate images: copy ALL tars into k3s agent/images BEFORE starting.
 shopt -s nullglob
 cp -f /opt/ourbox/airgap/k3s/*.tar /var/lib/ourbox/k3s/agent/images/
 cp -f /opt/ourbox/airgap/platform/images/*.tar /var/lib/ourbox/k3s/agent/images/
 shopt -u nullglob
 
+log "Hydrated tar files:"
+ls -1 /var/lib/ourbox/k3s/agent/images/*.tar 2>/dev/null || true
+
+# Fail fast with a clear message if memory controller isn't available
+if [[ -f /sys/fs/cgroup/cgroup.controllers ]] && ! grep -qw memory /sys/fs/cgroup/cgroup.controllers; then
+  echo "ERROR: cgroup v2 memory controller not enabled. k3s will fail." >&2
+  echo "Expected: 'memory' in /sys/fs/cgroup/cgroup.controllers" >&2
+  echo "Fix: ensure /boot/firmware/cmdline.txt includes:" >&2
+  echo "  cgroup_enable=cpuset cgroup_enable=memory cgroup_memory=1" >&2
+  exit 1
+fi
+
 # Start k3s (enabled only after hydration prep)
 systemctl enable k3s.service
 systemctl start k3s.service
 
 # Wait for API
+log "Waiting for k3s API..."
 for i in $(seq 1 180); do
   if /usr/local/bin/k3s kubectl get nodes >/dev/null 2>&1; then
+    log "k3s API is up"
     break
+  fi
+  if (( i % 5 == 0 )); then
+    log "still waiting... (${i}/180)"
   fi
   sleep 1
 done
-
 /usr/local/bin/k3s kubectl get nodes >/dev/null
 
 # Apply platform demo manifests (offline)

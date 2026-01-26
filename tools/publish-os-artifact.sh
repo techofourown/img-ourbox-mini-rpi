@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
-source "$(dirname "$0")/registry.sh"
+source "${ROOT}/tools/lib.sh"
+# shellcheck disable=SC1091
+source "${ROOT}/tools/registry.sh"
 
 CLI="$(pick_container_cli)"
 
@@ -12,8 +16,7 @@ DEPLOY_DIR="${1:-deploy}"
 
 IMG_XZ="$(ls -1 "${DEPLOY_DIR}"/img-*.img.xz | head -n 1)"
 if [ -z "${IMG_XZ}" ] || [ ! -f "${IMG_XZ}" ]; then
-  echo "No deploy/img-*.img.xz found. Did the build finish and deploy get copied out?" >&2
-  exit 1
+  die "No deploy/img-*.img.xz found. Did the build finish and deploy get copied out?"
 fi
 
 BASE="$(basename "${IMG_XZ}" .img.xz)"
@@ -47,14 +50,12 @@ if [ ! -f "${tmp}/build.log" ]; then
   sed -i '/ADD build.log/d' "${tmp}/Dockerfile"
 fi
 
-echo ">> Building OCI artifact image: ${IMAGE}"
+log ">> Building OCI artifact image: ${IMAGE}"
 # shellcheck disable=SC2086
 $CLI build -t "${IMAGE}" "${tmp}"
 
-echo ">> Pushing: ${IMAGE}"
+log ">> Pushing: ${IMAGE}"
 # shellcheck disable=SC2086
 $CLI push "${IMAGE}"
 
-echo
-echo "DONE:"
-echo "  ${IMAGE}"
+log "DONE: ${IMAGE}"
