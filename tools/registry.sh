@@ -14,6 +14,23 @@ if ! declare -F need_cmd >/dev/null 2>&1; then
   need_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "missing required command: $1" >&2; exit 1; }; }
 fi
 
+canonicalize_image_ref() {
+  local ref="$1"
+  local first="${ref%%/*}"
+
+  if [[ "${first}" == *"."* || "${first}" == *":"* || "${first}" == "localhost" ]]; then
+    echo "${ref}"
+    return 0
+  fi
+
+  if [[ "${ref}" == */* ]]; then
+    echo "docker.io/${ref}"
+    return 0
+  fi
+
+  echo "docker.io/library/${ref}"
+}
+
 pick_container_cli() {
   # Honor explicit override.
   if [ -n "${DOCKER:-}" ]; then
