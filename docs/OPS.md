@@ -1,4 +1,4 @@
-# OurBox Mini OS — Operator Runbook (Build → Publish → Flash → Boot)
+# OurBox Mini OS -- Operator Runbook (Zero -> Boot)
 
 **Last verified:** 2026-01-26  
 **Verified on:** Pi 5 + dual NVMe (DATA label `OURBOX_DATA`, SYSTEM flashed to other NVMe)  
@@ -8,18 +8,77 @@ This is the only step-by-step doc. If reality and this file disagree, update thi
 
 ---
 
+## Opinionated defaults (repeatable, no options)
+
+We do **not** offer a menu of container runtimes or "latest" versions. This runbook assumes:
+
+- **Container runtime:** Podman (rootful)  
+- **BuildKit:** installed on the host (buildctl/buildkitd)  
+- **Pinned versions:** `tools/versions.env` (K3s version is pinned here)
+
+If you change pinned versions or tooling, update **Last verified** and re-run end-to-end.
+
+---
+
 ## What you need
 
-### Build host (e.g. centroid)
-- This repo cloned with submodules
-- One container CLI: `nerdctl` **or** `docker` **or** `podman`
-- Enough disk space for pi-gen output
+### Any Linux host (including the Raspberry Pi)
 
-### Flash host (often the Pi)
-- `xz`, `dd`, `lsblk`, `readlink`, `partprobe`
-- **Extreme caution**: we have two NVMe drives:
-  - **DATA**: ext4 labeled `OURBOX_DATA` (must never be wiped)
-  - **SYSTEM**: raw disk that will be overwritten (will be wiped)
+This runbook is designed to work on a fresh Linux machine -- including a Raspberry Pi booted from SD/USB that will flash its own NVMe.
+
+You need:
+
+- `sudo` access
+- working Internet for the first run (fetch k3s + pull images)
+- enough disk space for pi-gen output (**~60GB free recommended**)
+- if building on **x86_64** for an **arm64** image, you need qemu/binfmt (our bootstrap script installs it on apt/dnf)
+
+### Storage layout (Pi 5 + dual NVMe)
+
+We assume two NVMe drives:
+
+- **DATA**: ext4 labeled `OURBOX_DATA` (**must never be wiped**)
+- **SYSTEM**: raw disk that will be overwritten (**will be wiped**)
+
+---
+
+## Happy path (single machine: build + flash on the same Pi)
+
+If you are doing everything on the Pi (booted from SD/USB):
+
+```bash
+# 0) Clone
+git clone --recurse-submodules <REPO_URL>
+cd img-ourbox-mini-rpi
+
+# 1) Install deps (Podman + BuildKit + basics)
+./tools/bootstrap-host.sh
+
+# 2) Use Podman for all repo scripts (rootful)
+export DOCKER="sudo podman"
+
+# 3) Load pinned versions into your environment (exports vars)
+set -a
+source ./tools/versions.env
+set +a
+
+# 4) Fetch airgap artifacts (uses pinned K3S_VERSION)
+./tools/fetch-airgap-platform.sh
+
+# 5) Build image
+OURBOX_VARIANT=dev OURBOX_VERSION=dev ./tools/build-image.sh
+
+# 6) Flash (DESTRUCTIVE) -- pick SYSTEM NVMe by-id
+IMG="$(ls -1 deploy/img-*.img.xz | head -n1)"
+sudo ./tools/flash-system-nvme.sh "${IMG}" /dev/disk/by-id/<YOUR_SYSTEM_NVME_BY_ID>
+
+# 7) Pre-boot username/password
+sudo ./tools/preboot-userconf.sh /dev/nvme1n1 <NEW_USER>
+
+# 8) Power off, remove SD/USB (or fix boot order), boot NVMe
+```
+
+Then jump to **8) First boot verification**.
 
 ---
 
@@ -35,51 +94,56 @@ git submodule update --init --recursive
 
 ---
 
-## 1) Fetch airgap platform artifacts (k3s + images)
+## 1) Bootstrap this machine (Podman + BuildKit + basics)
 
-This repo builds an image that includes an airgapped k3s. You must fetch the artifacts before building.
-
-### Choose a real k3s tag
-
-Pinning is best. For quick dev you can grab “latest”:
+This step makes a fresh Pi / Linux box usable (no "podman not found" surprises).
 
 ```bash
-export K3S_VERSION="$(
-  curl -fsSLI https://github.com/k3s-io/k3s/releases/latest \
-  | tr -d '\r' \
-  | sed -n 's/^location: .*\/tag\/\(v[^ ]*\)$/\1/ip' \
-  | tail -n1
-)"
-echo "K3S_VERSION=$K3S_VERSION"
+./tools/bootstrap-host.sh
 ```
 
-### Choose your container CLI explicitly (recommended)
+Then in your current shell:
 
 ```bash
-export DOCKER="nerdctl"   # or docker, or podman
+export DOCKER="sudo podman"
+
+# Export pinned versions (K3S_VERSION, BUILDKIT_VERSION, etc)
+set -a
+source ./tools/versions.env
+set +a
 ```
 
-### Fetch artifacts
+Verify:
+
+```bash
+podman version
+buildctl --version || true
+buildkitd --version || true
+systemctl status buildkit --no-pager || true
+```
+
+---
+
+## 2) Fetch airgap platform artifacts (k3s + images)
+
+This repo builds an image that includes an airgapped k3s. We fetch these artifacts *before* building.
+
+**K3s is pinned** in `tools/versions.env`. Do not use "latest".
 
 ```bash
 ./tools/fetch-airgap-platform.sh
 ```
 
-#### Nerdctl gotcha: arm64 image export
+Expected artifacts:
 
-If you see errors like “digest not found” while saving images, it’s almost always a multi-arch/platform mismatch.
-The fix pattern is:
-
-```bash
-nerdctl pull --platform=linux/arm64 nginx:1.27-alpine
-nerdctl save --platform=linux/arm64 -o artifacts/airgap/platform/images/nginx_1.27-alpine.tar nginx:1.27-alpine
-```
-
-(Your script should do this correctly; if not, update the script. Don’t “document around” a broken script forever.)
+* `artifacts/airgap/k3s/k3s`
+* `artifacts/airgap/k3s/k3s-airgap-images-arm64.tar`
+* `artifacts/airgap/platform/images/nginx_1.27-alpine.tar`
+* `artifacts/airgap/manifest.env`
 
 ---
 
-## 2) Build the OS image
+## 3) Build the OS image
 
 ```bash
 OURBOX_VARIANT=dev OURBOX_VERSION=dev ./tools/build-image.sh
@@ -91,34 +155,26 @@ Expected output: a `deploy/` directory with:
 * `*.info`
 * `build.log`
 
-### nerdctl gotcha: deploy copy failure
-
-If the build finishes but ends with a nerdctl tar/cp error, manually copy deploy out of the container:
-
-```bash
-nerdctl ps -a | egrep 'pigen|pi-gen' || true
-mkdir -p deploy
-nerdctl cp pigen_work:/pi-gen/deploy/. ./deploy/
-ls -lah deploy
-```
+If the build finishes but you do not see `deploy/img-*.img.xz`, treat it as a build failure.
 
 ---
 
-## 3) Publish the OS image as a registry artifact (OCI)
+## 4) Publish the OS image as a registry artifact (optional)
 
-From the build host:
+If you have a registry workflow, publish the artifact:
 
 ```bash
 xz -t deploy/img-*.img.xz
 ./tools/publish-os-artifact.sh deploy
 ```
 
-Save the printed image reference, e.g.
-`registry.example.dev/ourbox/os:<tag>`
+Save the printed image reference, e.g. `registry.example.dev/ourbox/os:<tag>`.
 
 ---
 
-## 4) Pull + extract the artifact (any machine with container CLI)
+## 5) Pull + extract the artifact (optional)
+
+If you published to a registry, pull/extract anywhere (this host now has Podman):
 
 ```bash
 rm -rf ./deploy-from-registry
@@ -129,18 +185,7 @@ xz -t ./deploy-from-registry/os.img.xz
 
 ---
 
-## 5) Transfer to the Pi (simple + universal)
-
-If the Pi does NOT have this repo + container tooling, just SCP:
-
-```bash
-scp ./deploy-from-registry/os.img.xz johnb@<pi-ip>:/home/johnb/os.img.xz
-scp ./deploy-from-registry/os.info   johnb@<pi-ip>:/home/johnb/os.info
-```
-
----
-
-## 6) Flash the SYSTEM NVMe (DESTRUCTIVE — protect DATA)
+## 6) Flash the SYSTEM NVMe (DESTRUCTIVE -- protect DATA)
 
 ### 6.1 Verify current root is NOT the disk you will overwrite
 
@@ -158,10 +203,18 @@ ls -l /dev/disk/by-label/OURBOX_DATA
 ls -l /dev/disk/by-id/ | grep -i nvme || true
 ```
 
-### 6.3 Use the safety rails flash script
+### 6.3 Flash using the safety-rails script
+
+Pick ONE image source:
+
+* from local build output: `deploy/img-*.img.xz`
+* from registry extraction: `deploy-from-registry/os.img.xz`
+* from SCP: `/home/<user>/os.img.xz`
+
+Then flash:
 
 ```bash
-sudo ./tools/flash-system-nvme.sh /home/johnb/os.img.xz /dev/disk/by-id/<YOUR_SYSTEM_NVME_BY_ID>
+sudo ./tools/flash-system-nvme.sh <path-to-os.img.xz> /dev/disk/by-id/<YOUR_SYSTEM_NVME_BY_ID>
 ```
 
 ---
@@ -171,14 +224,19 @@ sudo ./tools/flash-system-nvme.sh /home/johnb/os.img.xz /dev/disk/by-id/<YOUR_SY
 Before booting the newly-flashed NVMe OS, create `userconf.txt` on the boot partition:
 
 ```bash
-sudo ./tools/preboot-userconf.sh /dev/nvme1n1 johnb
+sudo ./tools/preboot-userconf.sh /dev/nvme1n1 <NEW_USER>
 ```
 
-Power down, remove SD (or fix boot order), and boot the NVMe OS.
+Notes:
+
+* This script expects a real device path like `/dev/nvme1n1` (not a by-id path).
+* It will prompt you for a password and write the hash to the boot partition.
+
+Power down, remove SD/USB (or fix boot order), and boot the NVMe OS.
 
 ---
 
-## 8) First boot verification (what “good” looks like)
+## 8) First boot verification (what "good" looks like)
 
 ### 8.1 Storage mounts
 
@@ -218,9 +276,34 @@ sudo cat /var/lib/ourbox/state/bootstrap.done 2>/dev/null || true
 
 ## Troubleshooting
 
-### k3s fails with: “failed to find memory cgroup (v2)”
+### Podman is missing / "podman: command not found"
 
-If you’re running an image built after this change, this should already be baked in. If you’re on an older image or you edited cmdline manually, use the steps below.
+You skipped bootstrap. Fix:
+
+```bash
+./tools/bootstrap-host.sh
+export DOCKER="sudo podman"
+```
+
+### BuildKit is missing / build scripts complain about buildkitd/buildctl
+
+Fix:
+
+```bash
+./tools/bootstrap-host.sh
+buildctl --version
+systemctl status buildkit --no-pager || true
+```
+
+### "Container pigen_work already exists"
+
+```bash
+sudo podman rm -v pigen_work || true
+```
+
+### k3s fails with: "failed to find memory cgroup (v2)"
+
+If you are running an image built after the cgroup patch stage, this should already be baked in. If you are on an older image or you edited cmdline manually, use the steps below.
 
 Symptom:
 
@@ -257,18 +340,7 @@ sudo systemctl start ourbox-bootstrap.service
 sudo systemctl status k3s --no-pager
 ```
 
-**Important note:** You cannot “fix this on centroid” by running scripts that use `ROOTFS_DIR` unless you are inside the pi-gen build environment. `ROOTFS_DIR` is not set on your host shell.
-
-To fix an already-flashed device, edit `/boot/firmware/cmdline.txt` on the device (or mount the boot partition and edit it there). To bake this into the image, implement it in a pi-gen stage script (code change), not a host shell snippet.
-
-### “Container pigen_work already exists”
-
-```bash
-nerdctl rm -v pigen_work || true
-# or docker rm -v pigen_work || true
-```
-
-### Wi‑Fi blocked by rfkill
+### Wi-Fi blocked by rfkill
 
 ```bash
 sudo raspi-config
@@ -277,4 +349,15 @@ sudo raspi-config
 
 ### Registry TLS / unknown CA
 
-Use SCP as a fallback, or install your registry CA. Don’t stall the workflow on this.
+Use local flash (`deploy/img-*.img.xz`) or SCP as a fallback, or install your registry CA. Do not stall the workflow on this.
+
+---
+
+## One important meta-point (why pin K3S)
+Because **airgap artifacts are part of the OS image**. If K3s changes under you, you will get "works yesterday, broken today" builds -- and it will be impossible to debug reproducibly.
+
+With `tools/versions.env`, you have got:
+- deterministic builds
+- deliberate upgrades (edit the pin, rebuild, re-verify, update the runbook date)
+
+---
