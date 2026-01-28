@@ -54,6 +54,7 @@ That script will:
 * build the OS image
 * scan for NVMe disks and refuse to proceed unless there are exactly two
 * protect the DATA disk (label `OURBOX_DATA`) and pick the other NVMe as SYSTEM
+* wipe SYSTEM disk signatures (works even if already partitioned), then flash the OS image to the raw NVMe disk
 * require multiple explicit confirmations before wiping SYSTEM
 * prompt you for username and password (writes `userconf.txt` to the boot partition)
 
