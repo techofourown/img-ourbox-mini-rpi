@@ -12,6 +12,15 @@ cd "${ROOT}"
 # pi-gen's docker wrapper writes logs to ./deploy (e.g. deploy/build-docker.log).
 # On a fresh clone, deploy/ may not exist; create it up-front so the build can't fail at the end.
 mkdir -p "${ROOT}/deploy"
+# Ensure deploy/ is writable by the invoking user (pi-gen may run under sudo and leave root-owned outputs).
+if [[ ! -w "${ROOT}/deploy" ]]; then
+  if command -v sudo >/dev/null 2>&1; then
+    log "deploy/ not writable; fixing ownership with sudo"
+    sudo chown -R "$(id -u):$(id -g)" "${ROOT}/deploy"
+  fi
+fi
+
+[[ -w "${ROOT}/deploy" ]] || die "deploy/ is not writable: ${ROOT}/deploy (fix ownership/permissions and rerun)"
 log "Ensured deploy dir exists: ${ROOT}/deploy"
 # shellcheck disable=SC1091
 source "${ROOT}/tools/registry.sh"
@@ -62,6 +71,11 @@ if [[ "$(cli_base "${DOCKER}")" == "podman" && "${DOCKER}" == *" "* && -n "${SUD
   DOCKER=podman ${SUDO} "${ROOT}/vendor/pi-gen/build-docker.sh" -c "${ROOT}/pigen/config/ourbox.conf"
 else
   "${ROOT}/vendor/pi-gen/build-docker.sh" -c "${ROOT}/pigen/config/ourbox.conf"
+fi
+
+# Normalize ownership so subsequent tools (publish, etc.) can write into deploy/ without sudo.
+if command -v sudo >/dev/null 2>&1; then
+  sudo chown -R "$(id -u):$(id -g)" "${ROOT}/deploy" >/dev/null 2>&1 || true
 fi
 
 log "Postflight: validating deploy outputs"
