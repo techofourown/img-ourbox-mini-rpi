@@ -1,3 +1,10 @@
+## [0.1.2](https://github.com/techofourown/img-ourbox-mini-rpi/compare/v0.1.1...v0.1.2) (2026-01-28)
+
+
+### Bug Fixes
+
+* ensure deploy dir writable ([9eeb90e](https://github.com/techofourown/img-ourbox-mini-rpi/commit/9eeb90e0ecb74d0bc20aee60e7acabd366397586))
+
 ## [0.1.1](https://github.com/techofourown/img-ourbox-mini-rpi/compare/v0.1.0...v0.1.1) (2026-01-28)
 
 
