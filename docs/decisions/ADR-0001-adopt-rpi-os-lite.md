@@ -1,15 +1,16 @@
-# ADR-0001: Adopt Raspberry Pi OS Lite as the Base Operating System for OurBox Mini
+# ADR-0001: Adopt Raspberry Pi OS Lite as the Base Operating System for OurBox Matchbox
 
 ## Status
 Accepted
 
 ## Context
 
-OurBox Mini (TOO-OBX-MINI-01) is a physical appliance built around **Raspberry Pi 5 (16 GB RAM)**
-with a **dual NVMe SSD HAT**, designed to remain plugged in continuously and run the OurBox software
-stack (delivered primarily via containers, orchestrated by k3s). The product’s trust promise depends
-not only on open-source code, but also on the long-term ability to keep devices secure, stable, and
-supportable as a shipped hardware product.
+OurBox Matchbox (model `TOO-OBX-MBX-01`) is a physical appliance built around
+**Raspberry Pi 5 (16 GB RAM)** with a **dual NVMe SSD HAT**, designed to remain plugged in
+continuously and run the OurBox software stack (delivered primarily via containers, orchestrated by
+k3s). The product’s trust promise depends not only on open-source code, but also on the long-term
+ability to keep devices secure, stable, and supportable as a shipped hardware product. The current
+build target SKU for this repo is `TOO-OBX-MBX-BASE-001`.
 
 We must choose a **single supported/validated base OS** (“OurBox OS” for this SKU) that minimizes
 hardware enablement surprises (boot/firmware/NVMe/Wi‑Fi), reduces support burden, and provides a
@@ -18,13 +19,13 @@ user autonomy and avoids unnecessary ecosystem lock-in.
 
 We considered three candidate distributions for this Raspberry Pi-based appliance:
 **Ubuntu Server LTS (ARM64)**, **Raspberry Pi OS Lite (64-bit)**, and **Ubuntu Core**. The decision
-is specific to **OurBox Mini’s Pi-based hardware**; other future OurBox SKUs may choose a different
+is specific to **OurBox Matchbox’s Pi-based hardware**; other future OurBox SKUs may choose a different
 baseline.
 
 ## Decision
 
-For **OurBox Mini (TOO-OBX-MINI-01)**, we will adopt **Raspberry Pi OS Lite (64-bit)** as the
-supported/validated base operating system (“OurBox OS” for this SKU).
+For **OurBox Matchbox Base (SKU `TOO-OBX-MBX-BASE-001`)**, we will adopt **Raspberry Pi OS Lite
+(64-bit)** as the supported/validated base operating system (“OurBox OS” for this SKU).
 
 OurBox’s application stack will remain **container-first** (k3s + workloads), so the base OS is
 primarily responsible for **hardware enablement, secure boot/runtime fundamentals, networking, and
@@ -80,7 +81,7 @@ predictability and supportability** over uniformity or specialized update models
   containers so most updates and rollbacks happen at the application layer.
 - **Harden the host OS** (disable unnecessary services, conservative defaults, least-open network
   posture) and adopt a disciplined patching process.
-- **Build and maintain a reproducible image pipeline** for OurBox Mini (standardized provisioning +
+- **Build and maintain a reproducible image pipeline** for OurBox Matchbox (standardized provisioning +
   configuration), so field devices converge on a known-good state.
 - **Implement a recovery story** (documented restore path; optional backup/restore tooling) so
   OS-level issues are survivable.

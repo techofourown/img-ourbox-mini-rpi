@@ -1,9 +1,16 @@
 # img-ourbox-mini-rpi
 
-Build repository for **OurBox Mini** OS images targeting **Raspberry Pi hardware** (Pi 5 + dual NVMe).
+Build repository for **OurBox Matchbox Base** (`TOO-OBX-MBX-BASE-001`) OS images targeting
+**Raspberry Pi hardware** (Pi 5 + dual NVMe).
 
 This repo produces an NVMe-bootable OS that mounts `/var/lib/ourbox` and boots into an airgapped
 single-node k3s runtime via `ourbox-bootstrap`.
+
+## Naming definitions (source of truth)
+
+- **Model = size/form-factor class.**
+- **Trim = intent.**
+- **SKU = exact BOM/software build** (including colors, capacities, vendors).
 
 ## Docs
 
