@@ -50,7 +50,7 @@ ensure_buildkitd
 
 # Defaults (override by prefixing env vars when invoking)
 : "${OURBOX_TARGET:=rpi}"
-: "${OURBOX_SKU:=TOO-OBX-MINI-01}"
+: "${OURBOX_SKU:=TOO-OBX-MBX-BASE-001}"
 : "${OURBOX_VARIANT:=prod}"
 : "${OURBOX_VERSION:=dev}"
 

@@ -1,0 +1,7 @@
+{
+  "name": "img-ourbox-mini-rpi",
+  "private": true,
+  "scripts": {
+    "test": "./tools/check_legacy_terms.sh"
+  }
+}
