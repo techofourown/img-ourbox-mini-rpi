@@ -38,7 +38,7 @@ fi
 banner() {
   echo
   echo "=================================================================="
-  echo "OurBox Mini OS — End-to-end build + flash (interactive, destructive)"
+  echo "OurBox Matchbox OS — End-to-end build + flash (interactive, destructive)"
   echo "=================================================================="
   echo
 }

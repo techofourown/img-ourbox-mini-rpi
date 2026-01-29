@@ -1,4 +1,4 @@
-# OurBox Mini OS — Operator Runbook (Zero → Boot)
+# OurBox Matchbox OS — Operator Runbook (Zero → Boot)
 
 **Last verified:** 2026-01-26  
 **Verified on:** Pi 5 + dual NVMe (DATA label `OURBOX_DATA`, SYSTEM flashed to other NVMe)  
