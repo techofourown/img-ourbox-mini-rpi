@@ -1,6 +1,6 @@
 # Contributing
 
-This repo builds the OurBox Mini OS image. The bar is “someone else can reproduce what you did and
+This repo builds the OurBox Matchbox OS image. The bar is "someone else can reproduce what you did and
 flash it without guessing”.
 
 ## Principles

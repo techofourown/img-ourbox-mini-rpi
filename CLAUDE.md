@@ -1,0 +1,77 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What This Is
+
+Build system for **OurBox Matchbox OS images** targeting Raspberry Pi 5 with dual NVMe storage. Produces an NVMe-bootable OS that mounts persistent data and boots into an airgapped single-node k3s runtime. Built on top of pi-gen (git submodule at `vendor/pi-gen`, arm64 branch).
+
+## Key Commands
+
+### Full end-to-end build + flash (interactive, destructive)
+```bash
+sudo ./tools/ops-e2e.sh
+```
+
+### Individual steps (what ops-e2e.sh calls in order)
+```bash
+sudo ./tools/bootstrap-host.sh         # Install Podman, BuildKit, system deps (idempotent)
+./tools/fetch-airgap-platform.sh       # Download k3s binary, airgap images, nginx
+sudo ./tools/build-image.sh            # Run pi-gen, collect artifact into deploy/
+sudo ./tools/flash-system-nvme.sh      # Wipe + flash SYSTEM NVMe disk
+sudo ./tools/preboot-userconf.sh       # Write first-boot username/password
+```
+
+### Registry operations
+```bash
+./tools/publish-os-artifact.sh         # Push image as OCI artifact to registry
+./tools/pull-os-artifact.sh            # Pull + extract from registry
+./tools/mirror-required-images.sh      # Mirror container images to local registry
+```
+
+### Shell linting
+```bash
+shellcheck tools/*.sh
+```
+
+There is no formal test suite. Verification is manual: build, flash, boot, inspect.
+
+## Architecture
+
+### Build Pipeline (ops-e2e.sh)
+1. **Bootstrap host** — install Podman + BuildKit + deps
+2. **Fetch airgap artifacts** — k3s binary, k3s airgap images, nginx demo image → `artifacts/airgap/`
+3. **Build OS image** — pi-gen runs stages 0–2 (upstream) + `stage-ourbox-matchbox` (custom) → `deploy/*.img.xz`
+4. **Flash SYSTEM disk** — wipe + dd to the non-DATA NVMe (exactly 2 NVMe disks required)
+5. **Write userconf** — first-boot credentials to boot partition
+
+### Custom pi-gen Stage (`pigen/stages/stage-ourbox-matchbox/`)
+Each substage runs inside the pi-gen chroot:
+- `00-ourbox-contract` — writes `/etc/ourbox/release` (product, device, SKU, variant, version, git hash)
+- `01-storage-contract` — adds `LABEL=OURBOX_DATA` mount to `/etc/fstab` at `/var/lib/ourbox`
+- `02-airgap-platform` — injects k3s binary + airgap tars into the rootfs
+- `03-kernel-cgroups` — adds memory cgroup v2 flags to kernel cmdline
+
+### Shared Shell Libraries
+- `tools/lib.sh` — `log()`, `die()`, `need_cmd()`, `resolve_label()`, `cli_base()`
+- `tools/registry.sh` — `pick_container_cli()`, `imgref()`, `mirror_image()`, `canonicalize_image_ref()`, `ensure_buildkitd()`
+- `tools/versions.env` — pinned K3S_VERSION, BUILDKIT_VERSION, NGINX_IMAGE
+- `tools/registry.env` — registry address and namespace (override via `registry.env.local`)
+
+### Storage Contract
+- Exactly 2 NVMe disks: one is SYSTEM (gets wiped), one is DATA (labeled `OURBOX_DATA`, ext4, mounted at `/var/lib/ourbox`)
+- Label-based mounts survive NVMe device enumeration changes
+- DATA disk is never wiped by flash scripts; operator prompted if prior state exists
+
+### Container CLI Selection
+Scripts auto-detect the container runtime via `pick_container_cli()`: Podman (preferred) → Docker → nerdctl. Override with `DOCKER=` env var. All run rootful (sudo when not root).
+
+## Conventions
+
+- All shell scripts: `#!/usr/bin/env bash` + `set -euo pipefail`
+- Commit messages: Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`) — semantic-release auto-versions on merge to `main`
+- Version pinning in `tools/versions.env` — change deliberately, re-verify e2e, update docs
+- pi-gen config in `pigen/config/ourbox.conf` — build identity, artifact naming, stage list
+- ADRs in `docs/decisions/` — document significant architectural choices
+- `docs/OPS.md` is the operator runbook and authority for build/flash/boot procedures
+- Never commit build outputs (`deploy/`, `*.img`, `*.img.xz`) — `.gitignore` enforces this

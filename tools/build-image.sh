@@ -50,9 +50,13 @@ ensure_buildkitd
 
 # Defaults (override by prefixing env vars when invoking)
 : "${OURBOX_TARGET:=rpi}"
-: "${OURBOX_SKU:=TOO-OBX-MINI-01}"
+: "${OURBOX_MODEL_ID:=TOO-OBX-MBX-01}"
+: "${OURBOX_SKU_ID:=TOO-OBX-MBX-BASE-001}"
 : "${OURBOX_VARIANT:=prod}"
 : "${OURBOX_VERSION:=dev}"
+
+# Compatibility bridge: OURBOX_SKU points to the SKU_ID for internal use
+OURBOX_SKU="${OURBOX_SKU_ID}"
 
 # Mount the repo so STAGE_LIST can reference /ourbox/...
 # Also suppress the upstream stage2 export so we only ship the OurBox artifact.
@@ -60,9 +64,14 @@ export PIGEN_DOCKER_OPTS="${PIGEN_DOCKER_OPTS:-} \
   --volume ${ROOT}:/ourbox:ro \
   --volume ${ROOT}/pigen/overrides/stage2/SKIP_IMAGES:/pi-gen/stage2/SKIP_IMAGES:ro \
   -e OURBOX_TARGET=${OURBOX_TARGET} \
+  -e OURBOX_MODEL_ID=${OURBOX_MODEL_ID} \
+  -e OURBOX_SKU_ID=${OURBOX_SKU_ID} \
   -e OURBOX_SKU=${OURBOX_SKU} \
   -e OURBOX_VARIANT=${OURBOX_VARIANT} \
   -e OURBOX_VERSION=${OURBOX_VERSION}"
+
+log "Preflight: checking for legacy naming terms"
+"${ROOT}/tools/check_legacy_terms.sh"
 
 log "Preflight: verifying airgap artifacts exist"
 [[ -x "${ROOT}/artifacts/airgap/k3s/k3s" ]] || die "missing k3s binary; run ./tools/fetch-airgap-platform.sh"

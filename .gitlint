@@ -1,0 +1,21 @@
+[general]
+# Ignore merge commits
+ignore=merge-commits
+
+# Enable contrib rules for Conventional Commits
+contrib=contrib-title-conventional-commits
+
+[title-max-length]
+line-length=100
+
+[body-max-line-length]
+line-length=100
+
+# Title trailing punctuation is handled by commitlint
+
+[body-first-line-empty]
+# Require blank line between title and body
+
+[contrib-title-conventional-commits]
+# Conventional Commits types that align with commitlint
+types=feat,fix,perf,refactor,docs,chore,test,build,ci,style,revert

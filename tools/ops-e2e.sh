@@ -39,7 +39,7 @@ fi
 banner() {
   echo
   echo "=================================================================="
-  echo "OurBox Mini OS — End-to-end build + flash (interactive, destructive)"
+  echo "OurBox Matchbox OS — End-to-end build + flash (interactive, destructive)"
   echo "=================================================================="
   echo
 }
@@ -393,6 +393,9 @@ compute_os_artifact_ref_from_img() {
 
 main() {
   banner
+
+  log "Preflight: checking for legacy naming terms"
+  "${ROOT}/tools/check_legacy_terms.sh"
 
   ensure_not_booted_from_nvme
 

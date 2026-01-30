@@ -1,11 +1,11 @@
-# ADR-0002: Adopt a label-based data mount contract for OurBox Mini
+# ADR-0002: Adopt a label-based data mount contract for OurBox Matchbox
 
 ## Status
 Accepted
 
 ## Context
 
-OurBox Mini hardware includes two NVMe devices:
+OurBox Matchbox hardware includes two NVMe devices:
 
 - a **SYSTEM** disk that is flashed with the OS image
 - a **DATA** disk intended for persistent application storage

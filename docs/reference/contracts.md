@@ -1,4 +1,4 @@
-# OurBox Mini host contracts
+# OurBox Matchbox host contracts
 
 This repo produces an OS image that guarantees a small set of contracts. These contracts are the
 interface between “image build” and “k8s/apps”.
