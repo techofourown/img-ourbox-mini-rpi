@@ -20,12 +20,16 @@ need_cmd umount
 need_cmd mountpoint
 need_cmd find
 need_cmd blkid
+need_cmd findmnt
 
 SUDO=""
 if [[ ${EUID} -ne 0 ]]; then
   need_cmd sudo
   SUDO="sudo -E"
 fi
+
+# Captured during preflight to avoid re-scanning later.
+PREFLIGHT_NVME_DISKS=()
 
 REGISTRY_ROUNDTRIP=0
 if [[ "${1:-}" == "--registry-roundtrip" ]]; then
@@ -67,11 +71,64 @@ prompt_nonempty() {
 }
 
 ensure_not_booted_from_nvme() {
-  # Robust even when findmnt reports /dev/root.
-  if lsblk -nr -o NAME,MOUNTPOINT \
-    | awk '$2=="/" && $1 ~ /^nvme/ {exit 0} END{exit 1}'; then
-    die "root filesystem is on an NVMe device. Boot from SD/USB before flashing NVMe."
+  local root_src root_real root_parent
+  root_src="$(findmnt -nr -o SOURCE / 2>/dev/null || true)"
+  root_real="$(readlink -f "${root_src}" 2>/dev/null || echo "${root_src}")"
+  root_parent="$(lsblk -no PKNAME "${root_real}" 2>/dev/null || true)"
+  if [[ -n "${root_parent}" ]]; then
+    root_real="/dev/${root_parent}"
   fi
+
+  if [[ "${root_real}" == /dev/nvme* ]]; then
+    die "root filesystem is on an NVMe device (${root_real}). Boot from SD/USB before flashing NVMe."
+  fi
+}
+
+preflight_flash_topology_or_die() {
+  log "Preflight: verifying this host is safe for build+flash"
+
+  # Require exactly 2 NVMe disks (Matchbox contract)
+  mapfile -t disks < <(nvme_disks)
+  if [[ "${#disks[@]}" -ne 2 ]]; then
+    echo
+    lsblk -o NAME,SIZE,MODEL,SERIAL,TYPE,FSTYPE,LABEL,MOUNTPOINTS || true
+    echo
+    die "This workflow requires exactly 2 NVMe disks (DATA+SYSTEM). Found ${#disks[@]}. Run on Matchbox hardware with dual NVMe."
+  fi
+
+  show_nvme_summary "${disks[@]}"
+
+  # Hard stop if root is on NVMe (you are running from the disk you're about to overwrite)
+  local root_src root_real root_parent
+  root_src="$(findmnt -nr -o SOURCE / 2>/dev/null || true)"
+  root_real="$(readlink -f "${root_src}" 2>/dev/null || echo "${root_src}")"
+
+  # If we got /dev/root or a mapper, walk to the parent block device when possible.
+  root_parent="$(lsblk -no PKNAME "${root_real}" 2>/dev/null || true)"
+  if [[ -n "${root_parent}" ]]; then
+    root_real="/dev/${root_parent}"
+  fi
+
+  if [[ "${root_real}" == /dev/nvme* ]]; then
+    die "Root filesystem (/) is on NVMe (${root_real}). DO NOT run ops-e2e on an installed system. Boot from SD/USB (rescue/installer mode) and rerun."
+  fi
+
+  # Refuse if any NVMe partitions are mounted (DATA in use, or someone mounted SYSTEM)
+  if lsblk -nr -o MOUNTPOINT "${disks[@]}" | awk 'NF && $0 != "" {found=1} END{exit !found}'; then
+    echo
+    log "NVMe partitions are currently mounted:"
+    lsblk -o NAME,FSTYPE,LABEL,MOUNTPOINTS "${disks[@]}" || true
+    echo
+    die "NVMe disks are in use (mounted). Unmount them and stop any services using them (k3s/containerd). Then rerun from SD/USB."
+  fi
+
+  # Extra hard stop if k3s is running (don't even try to unmount/inspect DATA)
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet k3s.service; then
+    die "k3s.service is running. ops-e2e must be run from a clean SD/USB boot environment, not a live OurBox node."
+  fi
+
+  # Store disks for later (global array)
+  PREFLIGHT_NVME_DISKS=("${disks[@]}")
 }
 
 nvme_disks() {
@@ -107,6 +164,19 @@ unmount_anything_on_disk() {
     log "Unmounting ${mp} (/dev/${name})"
     ${SUDO} umount "/dev/${name}" >/dev/null 2>&1 || ${SUDO} umount "${mp}" >/dev/null 2>&1 || true
   done < <(lsblk -nr -o NAME,MOUNTPOINT "${disk}" | awk 'NF==2 && $2!="" {print $1, $2}')
+}
+
+require_unmounted_disk() {
+  local disk="$1"
+  unmount_anything_on_disk "${disk}"
+
+  # If anything is still mounted from that disk, stop now.
+  if lsblk -nr -o MOUNTPOINT "${disk}" | awk 'NF && $0 != "" {found=1} END{exit !found}'; then
+    echo
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINTS "${disk}" || true
+    echo
+    die "Could not unmount all partitions on ${disk}. Something is using the disk. Stop services (k3s/containerd) and retry from SD/USB."
+  fi
 }
 
 DATA_CHECK_MP="/tmp/ourbox-data-check"
@@ -181,8 +251,8 @@ gate_on_existing_data_state() {
   local dpart="$1"
   local ddisk="$2"
 
-  # Best-effort: ensure nothing else is mounted from this disk (avoids mount failures).
-  unmount_anything_on_disk "${ddisk}"
+  # Ensure the disk is fully unmounted before inspection.
+  require_unmounted_disk "${ddisk}"
 
   # Defaults
   DATA_HAS_CONTENT=0
@@ -397,6 +467,13 @@ main() {
   log "Preflight: checking for legacy naming terms"
   "${ROOT}/tools/check_legacy_terms.sh"
 
+  # Fail fast before any downloads/builds
+  preflight_flash_topology_or_die
+
+  # Explicit operator consent before spending hours building and flashing
+  prompt_confirm_exact "BUILD-AND-FLASH" \
+    "This will build an OS image (can take a long time) and then ERASE a SYSTEM NVMe disk. Type BUILD-AND-FLASH to continue:"
+
   ensure_not_booted_from_nvme
 
   log "Ensuring submodules are present"
@@ -448,8 +525,13 @@ main() {
     log "Using pulled artifact for flashing: ${flash_img}"
   fi
 
-  # NVMe safety: exactly two NVMe disks
-  mapfile -t disks < <(nvme_disks)
+  # NVMe safety: exactly two NVMe disks (reuse preflight discovery if present)
+  local disks=()
+  if [[ ${#PREFLIGHT_NVME_DISKS[@]} -eq 2 ]]; then
+    disks=("${PREFLIGHT_NVME_DISKS[@]}")
+  else
+    mapfile -t disks < <(nvme_disks)
+  fi
   if [[ "${#disks[@]}" -ne 2 ]]; then
     echo
     lsblk -o NAME,SIZE,MODEL,SERIAL,TYPE,FSTYPE,LABEL,MOUNTPOINTS || true
@@ -518,8 +600,8 @@ main() {
     sys_byid="${sys_disk}"
   fi
 
-  # Unmount anything on SYSTEM (best-effort)
-  unmount_anything_on_disk "${sys_disk}"
+  # Unmount anything on SYSTEM and fail if still busy
+  require_unmounted_disk "${sys_disk}"
 
   log "Flashing SYSTEM NVMe"
   "${ROOT}/tools/flash-system-nvme.sh" "${flash_img}" "${sys_byid}" || die "flash failed; refusing to continue"
